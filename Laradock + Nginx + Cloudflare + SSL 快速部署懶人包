@@ -1,0 +1,137 @@
+# ✅ Laradock + Nginx + Cloudflare + SSL 快速成功部署懶人包
+
+這是針對部署 Laravel 專案到 AWS EC2，並透過 Cloudflare 使用通配符 SSL 憑證的完整部署流程整理。
+
+---
+
+## 🧱 環境前提
+
+- 專案架構使用 [Laradock](https://laradock.io/)
+- EC2 Ubuntu 環境
+- Nginx 作為 Web Server
+- 網域註冊在 Cloudflare，使用免費通配符憑證（*.example.com）
+
+---
+
+## 📦 步驟總覽
+
+### 1️⃣ 設定 EC2 安全群組
+
+- 開放入站規則（Inbound Rules）：
+
+| 類型  | 協定 | 埠範圍 | 來源       |
+|-------|------|--------|------------|
+| HTTP  | TCP  | 80     | 0.0.0.0/0  |
+| HTTPS | TCP  | 443    | 0.0.0.0/0  |
+
+---
+
+### 2️⃣ Laravel 專案放置位置（相對於 Laradock）
+
+```
+/laradock
+/www/your-laravel-project
+```
+
+---
+
+### 3️⃣ docker-compose.yml nginx volumes 範例
+
+```yaml
+services:
+  nginx:
+    volumes:
+      - ../www/your-laravel-project:/var/www
+      - ./nginx/sites:/etc/nginx/sites-available
+      - ./nginx/ssl:/etc/nginx/ssl
+```
+
+---
+
+### 4️⃣ 建立憑證檔（Cloudflare 自簽或 Let's Encrypt）
+
+將你的憑證放入：
+
+```
+laradock/nginx/ssl/your-domain.example.com.crt
+laradock/nginx/ssl/your-domain.example.com.key
+```
+
+---
+
+### 5️⃣ Nginx 設定範例（分開 HTTP 與 HTTPS）
+
+#### HTTP → HTTPS 轉導：
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.example.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+#### HTTPS 處理：
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name your-domain.example.com;
+
+    ssl_certificate     /etc/nginx/ssl/your-domain.example.com.crt;
+    ssl_certificate_key /etc/nginx/ssl/your-domain.example.com.key;
+
+    root /var/www/your-laravel-project/public;
+    index index.php index.html;
+
+    location / {
+        try_files $uri $uri/ /index.php?$args;
+    }
+
+    location ~ \.php$ {
+        try_files $uri =404;
+        fastcgi_pass php-upstream;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+```
+
+---
+
+### 6️⃣ 重啟 nginx 並驗證設定
+
+```bash
+docker-compose exec nginx nginx -t
+docker-compose restart nginx
+```
+
+---
+
+### 7️⃣ Cloudflare 設定
+
+- DNS 記錄為 A 或 CNAME
+- 代理狀態：🟠（Proxied）
+- SSL 模式：建議 `Full`
+- 開啟 Always Use HTTPS：✅
+
+---
+
+## ✅ 測試方式
+
+```bash
+curl -vk https://your-domain.example.com
+```
+
+或：
+
+```bash
+curl -vk https://your-domain.example.com --resolve your-domain.example.com:443:<EC2 IP>
+```
+
+---
+
+## 🎉 完成！
+
+你已成功部署 Laravel 專案，支援 HTTPS 與 Cloudflare 防護！
